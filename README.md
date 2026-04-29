@@ -2,38 +2,13 @@
 
 TronLink Wallet is a decentralized non-custodial wallet.TronLink-Core is the core module of TronLink Wallet, which provides core functions such as Create Wallet, Get Address and Sign Transaction.
 
-## Analytics Module (Privacy-First Design)
+## Privacy
 
-The `metrics` module collects aggregated usage data only. **Wallet addresses, keys, mnemonics, transaction hashes, counter-parties, and device identifiers are never transmitted.** The backend receives only opaque UUIDs and same-day aggregated buckets; individual transactions are not reconstructible.
+TronLink Android only transmits aggregated, anonymized usage statistics. **Wallet addresses, private keys, mnemonics, transaction hashes, counter-parties, IPs, and device identifiers are never transmitted.** The backend receives only opaque per-address UUIDs minted on-device, plus same-day aggregated counts and 9-bucket logarithmic amount histograms — individual transactions cannot be reconstructed.
 
-### Address → UUID Anonymization
+Reporting is gated by an in-app **Basic Mode** toggle in TronLink Android Settings. When Basic Mode is **on**, no payload is built and no request is made.
 
-Each address is mapped to a random UUID stored **locally only**. The backend never sees the address, and the same user's two wallets appear as two independent UUIDs (no server-side linkage).
-
-```java
-// UIDMapRepository.java — local-only address → uuid mapping
-public synchronized String queryUIDByAddress(String address) {
-    UIdMappingEntity entity = uidMappingDao.getByAddress(address);
-    if (entity == null) {
-        String uuid = newUID();              // UUID.randomUUID().toString()
-        insert(address, uuid);                // persisted on-device only
-        return uuid;
-    }
-    return entity.getUId();
-}
-```
-
-### What Is Uploaded
-
-Records are merged locally per `(uid, actionType, tokenAddress, day)` before upload, and raw amounts are replaced with a 9-bucket logarithmic histogram (`A1..A9`).
-
-Never collected, never transmitted:
-
- • Wallet addresses , Public keys, Mnemonic phrases, Private keys.
-
- • Transaction hashes , Contract call parameters.
-
- • IP, device fingerprint,  any identifier derived from the host browser.
+For full details — what is collected, what is never collected, how anonymization / aggregation / encryption work, retention, and your controls — see [PRIVACY-POLICY.md](./PRIVACY-POLICY.md).
 
 
 ## Requirements
