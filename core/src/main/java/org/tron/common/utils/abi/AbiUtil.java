@@ -124,6 +124,9 @@ public class AbiUtil {
         byte[] encode(String arrayValues) {
 
             Coder coder = getParamCoder(elementType);
+            if (coder == null) {
+                throw new IllegalArgumentException("Unknown ABI type: " + elementType);
+            }
 
             List strings;
             try {

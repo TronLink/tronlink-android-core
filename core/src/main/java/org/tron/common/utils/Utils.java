@@ -18,35 +18,14 @@
 
 package org.tron.common.utils;
 
-import org.tron.common.crypto.LinuxSecureRandom;
-
 import java.security.SecureRandom;
 
 public class Utils {
 
-    private static SecureRandom random;
-
-
-    static {
-        if (isAndroidRuntime()) {
-            new LinuxSecureRandom();
-        }
-        random = new SecureRandom();
-    }
-
+    private static final SecureRandom random = new SecureRandom();
 
     public static SecureRandom getRandom() {
         return random;
-    }
-
-    private static int isAndroid = -1;
-
-    static boolean isAndroidRuntime() {
-        if (isAndroid == -1) {
-            final String runtime = System.getProperty("java.runtime.name");
-            isAndroid = (runtime != null && runtime.equals("Android Runtime")) ? 1 : 0;
-        }
-        return isAndroid == 1;
     }
 }
 

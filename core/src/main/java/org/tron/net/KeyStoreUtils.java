@@ -31,6 +31,8 @@ import javax.crypto.spec.SecretKeySpec;
 
 public class KeyStoreUtils {
 
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
     public static String getKeyStoreWithPrivate(String password, Wallet wallet) throws CipherException {
         return getKeyStore(password, wallet.getECKey().getPrivKeyBytes(), wallet.getAddress());
     }
@@ -211,7 +213,7 @@ public class KeyStoreUtils {
 
     public static byte[] generateRandomBytes(int size) {
         byte[] bytes = new byte[size];
-        new SecureRandom().nextBytes(bytes);
+        SECURE_RANDOM.nextBytes(bytes);
         return bytes;
     }
 

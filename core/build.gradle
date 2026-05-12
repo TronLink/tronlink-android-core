@@ -53,16 +53,11 @@ android {
 
 protobuf {
     protoc {
-        artifact = 'com.google.protobuf:protoc:3.5.1-1'
-//         artifact = 'com.google.protobuf:protoc:3.5.1-1:osx-x86_64'
+        artifact = 'com.google.protobuf:protoc:3.25.8'
     }
     plugins {
-//        javalite {
-//            artifact = "com.google.protobuf:protoc-gen-javalite:3.0.0"
-//        }
         grpc {
-            artifact = 'io.grpc:protoc-gen-grpc-java:1.9.0'
-//            artifact = 'io.grpc:protoc-gen-grpc-java:1.9.0:osx-x86_64'
+            artifact = 'io.grpc:protoc-gen-grpc-java:1.75.0'
         }
     }
     generateProtoTasks {
@@ -88,13 +83,13 @@ dependencies {
     implementation 'com.google.code.gson:gson:2.11.0'
 
     //grpc
-    implementation ('io.grpc:grpc-protobuf:1.52.1') {
-        exclude group:'com.google.api.grpc',module:'proto-google-common-protos'
-    }
-    implementation 'io.grpc:grpc-okhttp:1.52.1'
-    implementation 'io.grpc:grpc-stub:1.52.1'
+    def grpcVersion = '1.75.0'
+    def protobufVersion = '3.25.8'
+    implementation "io.grpc:grpc-protobuf:${grpcVersion}"
+    implementation "io.grpc:grpc-okhttp:${grpcVersion}"
+    implementation "io.grpc:grpc-stub:${grpcVersion}"
     implementation 'javax.annotation:javax.annotation-api:1.2'
-    implementation 'com.google.protobuf:protobuf-java:3.25.5'
+    implementation "com.google.protobuf:protobuf-java:${protobufVersion}"
 
     //common
     implementation 'org.apache.commons:commons-lang3:3.5'

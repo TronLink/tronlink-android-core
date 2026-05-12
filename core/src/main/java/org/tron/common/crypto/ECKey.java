@@ -1145,9 +1145,7 @@ public class ECKey implements Serializable, SignInterface {
     }
 
     public static ECDSASignature decodeFromDER(byte[] bytes) {
-      ASN1InputStream decoder = null;
-      try {
-        decoder = new ASN1InputStream(bytes);
+      try (ASN1InputStream decoder = new ASN1InputStream(bytes)) {
         DLSequence seq = (DLSequence) decoder.readObject();
         if (seq == null) {
           throw new RuntimeException("Reached past end of ASN.1 " + "stream.");
@@ -1166,14 +1164,6 @@ public class ECKey implements Serializable, SignInterface {
         return new ECDSASignature(r.getPositiveValue(), s.getPositiveValue());
       } catch (IOException e) {
         throw new RuntimeException(e);
-      } finally {
-        if (decoder != null) {
-          try {
-            decoder.close();
-          } catch (IOException x) {
-
-          }
-        }
       }
     }
 

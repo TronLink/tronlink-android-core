@@ -75,6 +75,7 @@ public class RomUtils {
             }
 
         } catch (final Exception e) {
+            LogUtils.w("read build.prop failed", e);
             return false;
         }
 
@@ -93,6 +94,7 @@ public class RomUtils {
             }
 
         } catch (final Exception e) {
+            LogUtils.w("read build.prop failed", e);
             return false;
         }
 
