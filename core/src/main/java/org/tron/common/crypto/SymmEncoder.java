@@ -61,17 +61,7 @@ public class SymmEncoder {
     }
   }
 
-  public static byte[] AESEcbEnc(byte[] plain, byte[] aesKey) {
-    if (aesKey == null || aesKey.length != 16) {
-      return null;
-    }
-    if (plain == null) {
-      return null;
-    }
 
-    SecretKey key = restoreSecretKey(aesKey, "AES");
-    return AesEcbPKCS7Encode(plain, key);
-  }
 
   public static byte[] AESEcbDec(byte[] encoded, byte[] aesKey) {
     if (aesKey == null || aesKey.length != 16) {
@@ -85,16 +75,7 @@ public class SymmEncoder {
     return AesEcbPKCS7Decode(encoded, key);
   }
 
-  private static byte[] AesEcbPKCS7Encode(byte[] plainText, SecretKey key) {
-    try {
-      Cipher cipher = Cipher.getInstance("AES/ECB/PKCS7Padding");
-      cipher.init(Cipher.ENCRYPT_MODE, key);
-      return cipher.doFinal(plainText);
-    } catch (Exception ex) {
-      ex.printStackTrace();
-      return null;
-    }
-  }
+
 
   private static byte[] AesEcbPKCS7Decode(byte[] encodedText, SecretKey key) {
     try {
