@@ -318,7 +318,7 @@ public class TransactionUtils {
     public static String sign(String unSign, ECKey myKey) {
         if (unSign == null || unSign.isEmpty())
             throw new IllegalArgumentException("unSign must not be empty");
-        unSign = unSign.replaceFirst("0x", "");
+        unSign = stripLeadingHexPrefix(unSign);
         byte[] bytes;
         if (AddressUtil.isHexString(unSign)) {
             bytes = ByteArray.fromHexString(unSign);
@@ -353,7 +353,7 @@ public class TransactionUtils {
      * @return
      */
     public static byte[] getMessageHash(String unsign) {
-        unsign = unsign.replaceFirst("0x", "");
+        unsign = stripLeadingHexPrefix(unsign);
         byte[] bytes;
         if (AddressUtil.isHexString(unsign)) {
             bytes = ByteArray.fromHexString(unsign);
@@ -418,8 +418,8 @@ public class TransactionUtils {
         if (AddressUtil.isEmpty(message, address, signature)) return false;
 
         try {
-            message = message.replaceFirst("0x", "");
-            signature = signature.replaceFirst("0x", "");
+            message = stripLeadingHexPrefix(message);
+            signature = stripLeadingHexPrefix(signature);
             byte[] signatureBytes;
 
             if (AddressUtil.isHexString(signature)) {
@@ -452,6 +452,10 @@ public class TransactionUtils {
             org.tron.common.utils.LogUtils.e(e);
             return false;
         }
+    }
+
+    private static String stripLeadingHexPrefix(String value) {
+        return value.startsWith("0x") ? value.substring(2) : value;
     }
 
     /**
