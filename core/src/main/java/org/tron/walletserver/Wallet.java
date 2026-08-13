@@ -249,6 +249,7 @@ public class Wallet implements Comparable<Wallet> {
         if (MnemonicUtils.validateMnemonic(mnemonic)) {
             ECKey tempKey = null;
             try {
+                WalletPath.validate(purpose, coinType, account, change, accountIndex);
                 byte[] seed = MnemonicUtils.generateSeed(mnemonic, null);
                 Bip32ECKeyPair masterKeypair = Bip32ECKeyPair.generateKeyPair(seed);
                 Bip32ECKeyPair bip44Keypair = generateBip44KeyPair(masterKeypair, purpose, coinType, account, change, accountIndex);
@@ -375,6 +376,7 @@ public class Wallet implements Comparable<Wallet> {
      * @param accountIndex default 0
      */
     public Bip32ECKeyPair generateBip44KeyPair(Bip32ECKeyPair master, int purpose, int coinType, int account, int change, int accountIndex) {
+        WalletPath.validate(purpose, coinType, account, change, accountIndex);
         // m/44'/60'/0'/0
         // m/44'/195'/0'/0/0
         final int[] path = {purpose | HARDENED_BIT, coinType | HARDENED_BIT, account | HARDENED_BIT, change, accountIndex};
