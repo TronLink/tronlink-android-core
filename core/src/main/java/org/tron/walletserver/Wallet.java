@@ -169,8 +169,11 @@ public class Wallet implements Comparable<Wallet> {
             if (mECKey != null) {
                 privateKeyBytes33 = ByteArray.fromHexString(key);
             }
-        } else if (I_Type == I_TYPE.MNEMONIC)
+        } else if (I_Type == I_TYPE.MNEMONIC) {
             generateKeyForMnemonic(key);
+        } else if (I_Type == I_TYPE.MNEMONIC_STRICT_VERIFICATION) {
+            generateKeyForMnemonicStrict(key);
+        }
     }
 
 
@@ -232,6 +235,10 @@ public class Wallet implements Comparable<Wallet> {
         return generateKeyForMnemonic(mnemonic, 44, 195, 0, 0, 0);
     }
 
+    private boolean generateKeyForMnemonicStrict(String mnemonic) {
+        return generateKeyForMnemonic(mnemonic, 44, 195, 0, 0, 0, true);
+    }
+
     /**
      * @param mnemonic
      * @param purpose      default 44 (Documentation source from  BIP43)
@@ -240,15 +247,27 @@ public class Wallet implements Comparable<Wallet> {
      * @param change       default 0
      * @param accountIndex default 0
      * @return {@code true} if a key was successfully derived; {@code false} when the
-     * mnemonic is not a valid BIP-39 sentence (including unknown words or a bad checksum)
-     * or derivation fails. On failure {@code mECKey} is left null, so callers must check
-     * this result (or {@link #isOpen()}) before continuing a sensitive flow rather than
-     * assuming a key is present.
+     * mnemonic is empty/null or derivation fails. This legacy entry point intentionally
+     * accepts non-BIP-39 phrases for backward compatibility. Use
+     * {@link I_TYPE#MNEMONIC_STRICT_VERIFICATION} when importing a mnemonic that must pass
+     * complete BIP-39 word-list and checksum validation. On failure {@code mECKey} is left
+     * null, so callers must check this result (or {@link #isOpen()}) before continuing a
+     * sensitive flow rather than assuming a key is present.
      */
     public boolean generateKeyForMnemonic(String mnemonic, int purpose, int coinType, int account, int change, int accountIndex) {
-        if (MnemonicUtils.validateMnemonic(mnemonic)) {
+        return generateKeyForMnemonic(mnemonic, purpose, coinType, account, change, accountIndex,
+                false);
+    }
+
+    private boolean generateKeyForMnemonic(String mnemonic, int purpose, int coinType,
+            int account, int change, int accountIndex, boolean strictVerification) {
+        boolean isAccepted = mnemonic != null
+                && !mnemonic.isEmpty()
+                && (!strictVerification || MnemonicUtils.validateMnemonic(mnemonic));
+        if (isAccepted) {
             ECKey tempKey = null;
             try {
+                WalletPath.validate(purpose, coinType, account, change, accountIndex);
                 byte[] seed = MnemonicUtils.generateSeed(mnemonic, null);
                 Bip32ECKeyPair masterKeypair = Bip32ECKeyPair.generateKeyPair(seed);
                 Bip32ECKeyPair bip44Keypair = generateBip44KeyPair(masterKeypair, purpose, coinType, account, change, accountIndex);
@@ -375,6 +394,7 @@ public class Wallet implements Comparable<Wallet> {
      * @param accountIndex default 0
      */
     public Bip32ECKeyPair generateBip44KeyPair(Bip32ECKeyPair master, int purpose, int coinType, int account, int change, int accountIndex) {
+        WalletPath.validate(purpose, coinType, account, change, accountIndex);
         // m/44'/60'/0'/0
         // m/44'/195'/0'/0/0
         final int[] path = {purpose | HARDENED_BIT, coinType | HARDENED_BIT, account | HARDENED_BIT, change, accountIndex};

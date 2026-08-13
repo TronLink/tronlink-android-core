@@ -38,6 +38,25 @@ public class WalletPathTest {
         }
     }
 
+    @Test
+    public void buildWalletPathRejectsNegativeIndexesAndUnsupportedChange() {
+        assertPathValidationFailure("{\"purpose\":44,\"coinType\":195,\"account\":-1,"
+                + "\"change\":0,\"accountIndex\":0}");
+        assertPathValidationFailure("{\"purpose\":44,\"coinType\":195,\"account\":0,"
+                + "\"change\":2,\"accountIndex\":0}");
+        assertPathValidationFailure("{\"purpose\":44,\"coinType\":195,\"account\":0,"
+                + "\"change\":0,\"accountIndex\":-1}");
+    }
+
+    private static void assertPathValidationFailure(String pathString) {
+        try {
+            WalletPath.buildWalletPath(pathString);
+            Assert.fail("Expected wallet path validation to fail");
+        } catch (IllegalArgumentException expected) {
+            Assert.assertTrue(expected.getMessage().startsWith("Wallet path"));
+        }
+    }
+
     private static void assertPathParseFailure(String pathString) {
         try {
             WalletPath.buildPath(pathString);

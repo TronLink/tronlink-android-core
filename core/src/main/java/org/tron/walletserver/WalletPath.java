@@ -21,6 +21,7 @@ import lombok.Data;
 @Data
 public class WalletPath implements Serializable {
     private static final long serialVersionUID = 95504495L;
+    private static final int MAX_CHILD_INDEX = 0x7fffffff;
     public int purpose = 44;
     public int coinType = 195;
     public int account;
@@ -77,11 +78,13 @@ public class WalletPath implements Serializable {
         if (walletPath == null) {
             throw new IllegalArgumentException("Failed to parse wallet path");
         }
+        validate(walletPath);
         return walletPath;
     }
 
     public static String buildPath(@Nullable WalletPath wp) {
         if (wp == null) return AddressUtil.EMPTY_STRING;
+        validate(wp);
         return wp.purpose +
                 "'/" +
                 wp.coinType +
@@ -98,6 +101,29 @@ public class WalletPath implements Serializable {
             return new WalletPath();
         }
         return parseWalletPath(mnemonicPath);
+    }
+
+    public static void validate(WalletPath path) {
+        if (path == null) {
+            throw new IllegalArgumentException("Wallet path must not be null");
+        }
+        validate(path.purpose, path.coinType, path.account, path.change, path.accountIndex);
+    }
+
+    public static void validate(int purpose, int coinType, int account, int change, int accountIndex) {
+        requireChildIndex("purpose", purpose);
+        requireChildIndex("coinType", coinType);
+        requireChildIndex("account", account);
+        if (change != 0 && change != 1) {
+            throw new IllegalArgumentException("Wallet path change must be 0 or 1");
+        }
+        requireChildIndex("accountIndex", accountIndex);
+    }
+
+    private static void requireChildIndex(String name, int value) {
+        if (value < 0 || value > MAX_CHILD_INDEX) {
+            throw new IllegalArgumentException("Wallet path " + name + " is out of range");
+        }
     }
 
 
