@@ -156,6 +156,43 @@ public class MnemonicUtils {
         }
     }
 
+    /**
+     * Validates a mnemonic for a new import without changing the text that will be used
+     * to derive its seed. Words must be separated by exactly one ASCII space; leading,
+     * trailing, repeated, or non-ASCII whitespace is rejected. This prevents a mnemonic
+     * from passing word/checksum validation after tokenization while deriving a different
+     * seed from the original text.
+     *
+     * <p>{@link #validateMnemonic(String)} retains its legacy tokenization behavior for
+     * callers that must validate historical phrases without changing their formatting.</p>
+     */
+    public static boolean validateMnemonicStrict(String mnemonic) {
+        return hasCanonicalWordSeparators(mnemonic) && validateMnemonic(mnemonic);
+    }
+
+    private static boolean hasCanonicalWordSeparators(String mnemonic) {
+        if (mnemonic == null || mnemonic.isEmpty()) {
+            return false;
+        }
+
+        boolean previousWasSpace = true;
+        for (int i = 0; i < mnemonic.length(); i++) {
+            char character = mnemonic.charAt(i);
+            if (character == ' ') {
+                if (previousWasSpace || i == mnemonic.length() - 1) {
+                    return false;
+                }
+                previousWasSpace = true;
+            } else {
+                if (Character.isWhitespace(character) || Character.isSpaceChar(character)) {
+                    return false;
+                }
+                previousWasSpace = false;
+            }
+        }
+        return !previousWasSpace;
+    }
+
     private static boolean isMnemonicEmpty(String mnemonic) {
         return mnemonic == null || mnemonic.trim().isEmpty();
     }

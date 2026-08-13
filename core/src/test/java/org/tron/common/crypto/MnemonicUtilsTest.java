@@ -77,4 +77,12 @@ public class MnemonicUtilsTest {
     public void generateEntropy_allZeroVector_remainsImportCompatible() {
         Assert.assertArrayEquals(new byte[16], MnemonicUtils.generateEntropy(VECTOR_MNEMONIC));
     }
+
+    @Test
+    public void validateMnemonicStrict_rejectsNonCanonicalWhitespace() {
+        Assert.assertTrue(MnemonicUtils.validateMnemonicStrict(VECTOR_MNEMONIC));
+        Assert.assertFalse(MnemonicUtils.validateMnemonicStrict(VECTOR_MNEMONIC + " "));
+        Assert.assertFalse(MnemonicUtils.validateMnemonicStrict(
+                VECTOR_MNEMONIC.replace("abandon about", "abandon  about")));
+    }
 }
