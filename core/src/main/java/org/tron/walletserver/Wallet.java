@@ -263,7 +263,7 @@ public class Wallet implements Comparable<Wallet> {
             int account, int change, int accountIndex, boolean strictVerification) {
         boolean isAccepted = mnemonic != null
                 && !mnemonic.isEmpty()
-                && (!strictVerification || MnemonicUtils.validateMnemonic(mnemonic));
+                && (!strictVerification || MnemonicUtils.validateMnemonicStrict(mnemonic));
         if (isAccepted) {
             ECKey tempKey = null;
             try {
