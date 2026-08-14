@@ -1,7 +1,5 @@
 package org.tron.walletserver;
 
-import android.text.TextUtils;
-
 import org.tron.common.crypto.Hash;
 import org.tron.common.utils.Base58;
 import org.tron.common.utils.ByteArray;
@@ -16,6 +14,7 @@ public class AddressUtil {
     public static final String EMPTY_STRING = "";
 
     private static final String TAG = "AddressUtil";
+    private static final int HEX_ADDRESS_LENGTH = 42;
 
     /**
      * Determine if it is empty
@@ -170,6 +169,28 @@ public class AddressUtil {
         return address;
     }
 
+    /**
+     * Decodes either a Base58Check address beginning with {@code T} or a hex address beginning
+     * with {@code 41}. Returns {@code null} when the input is not a supported valid address.
+     */
+    public static byte[] decodeUnknownAddress(String address) {
+        if (isEmpty(address)) {
+            return null;
+        }
+
+        String normalizedAddress = address.trim();
+        if (normalizedAddress.startsWith("T")) {
+            return decodeFromBase58Check(normalizedAddress);
+        }
+        if (normalizedAddress.length() == HEX_ADDRESS_LENGTH
+                && normalizedAddress.startsWith("41")
+                && isHexString(normalizedAddress)) {
+            byte[] decoded = ByteArray.fromHexString(normalizedAddress);
+            return isAddressValid(decoded) ? decoded : null;
+        }
+        return null;
+    }
+
 
     public static String zeros(int n) {
         return repeat('0', n);
@@ -186,7 +207,7 @@ public class AddressUtil {
      * @return
      */
     public static boolean isHexString(String hexString) {
-        if (TextUtils.isEmpty(hexString)) return false;
+        if (isEmpty(hexString)) return false;
         String regex = "^[A-Fa-f0-9]+$";
         if (hexString.matches(regex)) {
             return true;

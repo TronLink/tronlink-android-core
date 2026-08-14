@@ -105,6 +105,9 @@ public class ByteArray {
         return false;
     }
 
+    // accepted: [Q-07] Null/oversized guards omitted: no in-repo callers of this helper
+    // (product paths use Numeric.toBytesPadded); NPE/bare RuntimeException only on bad
+    // inputs and carry no asset/signing risk. Scan report 2026-07-21.
     public static byte[] toBytesPadded(BigInteger value, int length) {
         byte[] result = new byte[length];
         byte[] bytes = value.toByteArray();

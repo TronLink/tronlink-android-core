@@ -198,6 +198,7 @@ public class ECKey implements Serializable, SignInterface {
   // isPrivateKey true   private key ,other public key
   public ECKey(byte[] key, boolean isPrivateKey) {
     if (isPrivateKey) {
+      check(key != null && key.length > 0, "Private key must not be empty");
       BigInteger pk = new BigInteger(1, key);
       this.privKey = privateKeyFromBigInteger(pk);
       this.pub = CURVE.getG().multiply(pk);
@@ -264,6 +265,7 @@ public class ECKey implements Serializable, SignInterface {
     if (priv == null) {
       return null;
     } else {
+      validatePrivateKey(priv);
       try {
         return ECKeyFactory.getInstance(TronCastleProvider.getInstance())
                 .generatePrivate(new ECPrivateKeySpec(priv, CURVE_SPEC));
@@ -304,6 +306,7 @@ public class ECKey implements Serializable, SignInterface {
    * @return -
    */
   public static ECKey fromPrivate(BigInteger privKey) {
+    validatePrivateKey(privKey);
     return new ECKey(privKey, CURVE.getG().multiply(privKey));
   }
 
@@ -314,7 +317,16 @@ public class ECKey implements Serializable, SignInterface {
    * @return -
    */
   public static ECKey fromPrivate(byte[] privKeyBytes) {
+    check(privKeyBytes != null && privKeyBytes.length > 0, "Private key must not be empty");
     return fromPrivate(new BigInteger(1, privKeyBytes));
+  }
+
+  private static void validatePrivateKey(BigInteger privKey) {
+    check(
+            privKey != null
+                    && privKey.signum() > 0
+                    && privKey.compareTo(CURVE.getN()) < 0,
+            "Private key must be in secp256k1 range [1, n)");
   }
   /**
    * Creates an ECKey that simply trusts the caller to ensure that point is really the result of
@@ -1010,6 +1022,10 @@ public class ECKey implements Serializable, SignInterface {
    *
    * @return -
    */
+  // accepted: [S-04] Each call allocates a new 32-byte private-key copy with no caller zeroing
+  // contract; underlying BigInteger/BCECPrivateKey are immutable and cannot be wiped. Process-
+  // memory only (LOW); wiping the copy does not clear root material. Changing accessors/callers
+  // risks signing/keystore paths. Scan report 2026-07-21.
   @Nullable
   public byte[] getPrivKeyBytes() {
     if (privKey == null) {

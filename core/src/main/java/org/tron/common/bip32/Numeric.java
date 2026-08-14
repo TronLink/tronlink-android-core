@@ -170,6 +170,9 @@ public final class Numeric {
         return result;
     }
 
+    // accepted: [S-08] Illegal hex nibbles may silently map to wrong bytes. Risk is
+    // upstream (DApp/DeepLink malformed or malicious typed-data); app not primary owner.
+    // Fix has wide call-site blast radius vs limited benefit. Scan report 2026-07-14.
     public static byte[] hexStringToByteArray(String input) {
         String cleanInput = cleanHexPrefix(input);
 

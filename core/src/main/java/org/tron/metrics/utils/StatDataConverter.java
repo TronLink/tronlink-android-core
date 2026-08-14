@@ -10,6 +10,9 @@ import org.tron.metrics.bean.StatYData;
 import org.tron.metrics.bean.TransactionCacheEntity;
 import org.tron.metrics.reporter.ReportStatConfig;
 
+import java.math.BigDecimal;
+import java.math.MathContext;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +23,8 @@ import java.util.Map;
 public class StatDataConverter {
 
     private static final String TAG = ReportStatConfig.LOG_TAG + "_Converter";
+    private static final MathContext REPORT_NUMBER_PRECISION =
+            new MathContext(3, RoundingMode.DOWN);
 
     private static boolean isEmpty(List<?> list) {
         return list == null || list.isEmpty();
@@ -36,9 +41,9 @@ public class StatDataConverter {
             StatXData xData = new StatXData();
             xData.setUId(entity.getUId());
             xData.setIdType(String.valueOf(entity.getIdType()));
-            xData.setTrxBalance(entity.getTrxBalance());
-            xData.setUsdtBalance(entity.getUsdtBalance());
-            xData.setUsdBalance(entity.getUsdBalance());
+            xData.setTrxBalance(formatReportNumber(entity.getTrxBalance()));
+            xData.setUsdtBalance(formatReportNumber(entity.getUsdtBalance()));
+            xData.setUsdBalance(formatReportNumber(entity.getUsdBalance()));
             xData.setDay(entity.getDay());
             xDataList.add(xData);
         }
@@ -113,6 +118,21 @@ public class StatDataConverter {
         }
 
         return sb.toString();
+    }
+
+    public static String formatReportNumber(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return "0";
+        }
+        try {
+            return new BigDecimal(value)
+                    .round(REPORT_NUMBER_PRECISION)
+                    .setScale(1, RoundingMode.DOWN)
+                    .stripTrailingZeros()
+                    .toPlainString();
+        } catch (NumberFormatException e) {
+            return "0";
+        }
     }
 
     public static String encryptDataWithTs(String data, String ts, String signature) {

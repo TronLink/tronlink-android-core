@@ -20,6 +20,15 @@ package org.tron.common.crypto.cryptohash;
 
 import java.security.MessageDigest;
 
+/**
+ * Base engine for the cryptohash digest implementations.
+ *
+ * <p><b>Not thread-safe.</b> Each instance keeps mutable hashing state
+ * ({@code inputBuf}/{@code outputBuf}/{@code inputLen}/{@code blockCount}), so a
+ * single instance MUST NOT be shared across threads. Use one instance per
+ * thread; e.g. {@code Hash.sha3} allocates a fresh {@code MessageDigest} per
+ * call, which is the safe usage pattern.
+ */
 public abstract class DigestEngine extends MessageDigest implements Digest {
 
   private int digestLen, blockLen, inputLen;

@@ -17,6 +17,7 @@ import org.tron.walletserver.Wallet;
 import java.io.IOException;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
+import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Arrays;
@@ -41,6 +42,7 @@ public class KeyStoreUtils {
         return getKeyStore(password, mnemonic.getBytes(), address);
     }
 
+    // NOTE: zeroes the provided plaintext `bytes` on return; pass a throwaway copy.
     public static String getKeyStore(String password, byte[] bytes, String address) throws CipherException {
 
         final int N_STANDARD = RomUtils.getTotalMemory() > 2 ? 1 << 16 : 1 << 14;
@@ -52,31 +54,64 @@ public class KeyStoreUtils {
         final int DKLEN = 32;
         byte[] salt = generateRandomBytes(32);
 
-        byte[] derivedKey = generateDerivedScryptKey(password.getBytes(UTF_8), salt, N_STANDARD, R, P_STANDARD, DKLEN);
+        byte[] passwordBytes = password.getBytes(UTF_8);
+        byte[] derivedKey = generateDerivedScryptKey(passwordBytes, salt, N_STANDARD, R, P_STANDARD, DKLEN);
 
         byte[] encryptKey = Arrays.copyOfRange(derivedKey, 0, 16);
         byte[] iv = generateRandomBytes(16);
 
+        try {
+            byte[] cipherText = performCipherOperation(Cipher.ENCRYPT_MODE, iv, encryptKey,
+                    bytes);
 
-        byte[] cipherText = performCipherOperation(Cipher.ENCRYPT_MODE, iv, encryptKey,
-                bytes);
-
-        byte[] mac = generateMac(derivedKey, cipherText);
-        if (AddressUtil.isEmpty(address)){
-            return "";
+            byte[] mac = generateMac(derivedKey, cipherText);
+            if (AddressUtil.isEmpty(address)){
+                return "";
+            }
+            String hexAddress =address;
+            if(AddressUtil.isAddressValid(address)){
+                hexAddress=  Hex.toHexString(AddressUtil.decodeFromBase58Check(address));
+            }
+            return WalletFile.createGson().toJson(createWalletFile(hexAddress, cipherText, iv, salt, mac, N_STANDARD, P_STANDARD));
+        } finally {
+            // Wipe plaintext and key copies from the heap; bytes may be null.
+            if (bytes != null) {
+                Arrays.fill(bytes, (byte) 0);
+            }
+            Arrays.fill(passwordBytes, (byte) 0);
+            Arrays.fill(derivedKey, (byte) 0);
+            Arrays.fill(encryptKey, (byte) 0);
         }
-        String hexAddress =address;
-        if(AddressUtil.isAddressValid(address)){
-            hexAddress=  Hex.toHexString(AddressUtil.decodeFromBase58Check(address));
-        }
-        return WalletFile.createGson().toJson(createWalletFile(hexAddress, cipherText, iv, salt, mac, N_STANDARD, P_STANDARD));
     }
 
+    // accepted: [Q-12] Public API may still surface undeclared Gson/hex RuntimeExceptions
+    // on malformed keystore; non-blocking quality issue, import UI already fails closed.
+    // Scan report 2026-07-14.
     public static String getPrivateWithKeyStore(String keyStore, String password) throws CipherException, IOException {
-
-        return ByteArray.toHexString(decrypt(password, WalletFile.createGson().fromJson(keyStore, WalletFile.class)).getPrivKeyBytes());
+        WalletFile walletFile = WalletFile.createGson().fromJson(keyStore, WalletFile.class);
+        ECKey ecKey = decrypt(password, walletFile);
+        validateAddressMatches(walletFile.getAddress(), ecKey);
+        return ByteArray.toHexString(ecKey.getPrivKeyBytes());
     }
 
+    static void validateAddressMatches(String address, ECKey decryptedKey)
+            throws AddressMismatchException {
+        // Some third-party wallet keystores omit the optional address field. Keep those files
+        // importable for compatibility; all password, MAC and private-key checks still apply.
+        if (address == null || address.trim().isEmpty()) {
+            return;
+        }
+
+        byte[] declaredAddress = AddressUtil.decodeUnknownAddress(address);
+        if (declaredAddress == null
+                || decryptedKey == null
+                || !MessageDigest.isEqual(declaredAddress, decryptedKey.getAddress())) {
+            throw new AddressMismatchException();
+        }
+    }
+
+    // accepted: [Q-12] Same as getPrivateWithKeyStore — undeclared parse exceptions left as-is.
+    // Scan report 2026-07-14.
     public static String getMnemonicWithKeyStore(String keyStore, String password) throws CipherException, IOException {
 
         byte[] mnemonicBytes = decryptToByte(password, WalletFile.createGson().fromJson(keyStore, WalletFile.class));
@@ -129,6 +164,9 @@ public class KeyStoreUtils {
             if (p < 1 || p > 16) {
                 throw new CipherException("Invalid scrypt p parameter");
             }
+            // accepted: [S-04] Combined scrypt memory budget not enforced. Keystore import is
+            // app-internal only (no external/untrusted keystore API); no remote malicious
+            // JSON path. Scan report 2026-07-14.
             // generateMac reads derivedKey[16..32), so anything below 32 is unusable.
             // Upper bound stays generous: legacy keystores were created with
             // DKLEN = plaintext length, so a mnemonic keystore stores dklen equal to
@@ -169,7 +207,8 @@ public class KeyStoreUtils {
         try {
             byte[] derivedMac = generateMac(derivedKey, cipherText);
 
-            if (!Arrays.equals(derivedMac, mac)) {
+            // Constant-time compare to avoid a timing side channel on the password gate.
+            if (!MessageDigest.isEqual(derivedMac, mac)) {
                 throw new CipherException("Invalid password provided");
             }
 

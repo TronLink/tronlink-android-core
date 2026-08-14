@@ -399,7 +399,9 @@ public final class AbiTypes {
         } else if (DynamicBytes.class.equals(type)) {
             return "bytes";
         } else {
-            return type.getSimpleName().toLowerCase();
+            // Locale.ROOT: under tr_TR/az the default locale turns "Int256" into
+            // "ınt256" (dotless i), corrupting ABI type names and selectors (Q-03).
+            return type.getSimpleName().toLowerCase(java.util.Locale.ROOT);
         }
     }
 }

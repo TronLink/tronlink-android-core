@@ -353,10 +353,14 @@ public class TypeEncoder {
                 if (i == 0) {
                     offset = value.getValue().size() * MAX_BYTE_LENGTH;
                 } else {
+                    // The tail is encoded as UTF-8 (encodeString), so the offset must count
+                    // UTF-8 bytes. String.length() counts UTF-16 code units: 20 CJK chars
+                    // measure 20 but encode to 60 bytes, shifting every later offset (Q-07).
                     int bytesLength =
                             arrayOfBytes
                                     ? ((byte[]) value.getValue().get(i - 1).getValue()).length
-                                    : ((String) value.getValue().get(i - 1).getValue()).length();
+                                    : ((String) value.getValue().get(i - 1).getValue())
+                                            .getBytes(StandardCharsets.UTF_8).length;
                     int numberOfWords = (bytesLength + MAX_BYTE_LENGTH - 1) / MAX_BYTE_LENGTH;
                     int totalBytesLength = numberOfWords * MAX_BYTE_LENGTH;
                     offset += totalBytesLength + MAX_BYTE_LENGTH;

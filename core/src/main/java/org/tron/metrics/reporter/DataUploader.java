@@ -7,7 +7,10 @@ import org.tron.metrics.repository.IBalanceRepository;
 import org.tron.metrics.repository.ITransactionRepository;
 import org.tron.metrics.utils.GsonUtils;
 
+import java.util.concurrent.atomic.AtomicReference;
+
 import io.reactivex.disposables.Disposable;
+import io.reactivex.disposables.SerialDisposable;
 import io.reactivex.schedulers.Schedulers;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -19,12 +22,17 @@ import retrofit2.converter.gson.GsonConverterFactory;
  */
 public class DataUploader {
     private static final String TAG = "ReportLog";
-    private IBalanceRepository balanceRepository;
-    private ITransactionRepository transactionRepository;
-    private boolean formatPlain = false;
-    private OkHttpClient okHttpClient;
-    private String baseUrl;
-    private Disposable disposable;
+
+    // The singleton is shared across threads (init/upload/release may be called from
+    // different threads). Rather than guard each mutable field, the whole configuration
+    // is published as one immutable snapshot through an AtomicReference so upload() always
+    // sees a self-consistent set of dependencies (Q-01).
+    private final AtomicReference<Config> configRef = new AtomicReference<>();
+    // SerialDisposable atomically disposes the previous subscription when a new one is set,
+    // and is safe to set/replace from any thread.
+    private final SerialDisposable disposable = new SerialDisposable();
+    private final Object subscriptionLock = new Object();
+    private long subscriptionGeneration;
 
     private DataUploader() {
     }
@@ -41,21 +49,29 @@ public class DataUploader {
         if (baseUrl == null || (!baseUrl.startsWith("https://") && !BuildConfig.DEBUG)) {
             throw new IllegalArgumentException("baseUrl must use https");
         }
-        this.balanceRepository = balanceRepository;
-        this.transactionRepository = transactionCache;
-        this.formatPlain = formatPlain;
-        this.okHttpClient = okHttpClient;
-        this.baseUrl = baseUrl;
+        boolean effectivePlain = isPlainFormatAllowed(formatPlain, BuildConfig.DEBUG);
+        configRef.set(new Config(balanceRepository, transactionCache, effectivePlain, okHttpClient, baseUrl));
+    }
+
+    static boolean isPlainFormatAllowed(boolean requestedPlain, boolean debugBuild) {
+        return requestedPlain && debugBuild;
     }
 
     public boolean getFormatPlain() {
-        return this.formatPlain;
+        Config config = configRef.get();
+        return config != null && config.formatPlain;
     }
 
     public void upload(IUploadResultCallback iUploadResultCallback) {
+        // Capture the lifecycle generation first. Any release() after this point invalidates
+        // this upload, even if it happens before the immutable Config snapshot is read.
+        long generation = captureSubscriptionGeneration();
+        // Read a single immutable snapshot so the whole upload runs against one consistent
+        // configuration even if init()/release() is called concurrently on another thread.
+        Config config = configRef.get();
         // Every terminal path must signal the callback, otherwise host retry logic
         // driven by onSuccess/onFail hangs forever.
-        if (this.okHttpClient == null || this.baseUrl == null) {
+        if (config == null || config.okHttpClient == null || config.baseUrl == null) {
             notifySkipped(iUploadResultCallback, "uploader not initialized");
             return;
         }
@@ -64,7 +80,7 @@ public class DataUploader {
             // accepted: Q-11 prepareUploadData runs on the caller thread by design; hosts
             // are expected to invoke upload() off the main thread, and Room guards main-thread
             // access via IllegalStateException (caught and logged in DataPreparationManager).
-            DataPreparationManager.DataPreparationResult prepResult = DataPreparationManager.prepareUploadData(balanceRepository, transactionRepository);
+            DataPreparationManager.DataPreparationResult prepResult = DataPreparationManager.prepareUploadData(config.balanceRepository, config.transactionRepository);
 
             if (prepResult.isFailed()) {
                 notifyFail(iUploadResultCallback, new IllegalStateException("data preparation failed"));
@@ -76,7 +92,7 @@ public class DataUploader {
                 return;
             }
 
-            executeNetworkRequest(prepResult, startTime, iUploadResultCallback);
+            executeNetworkRequest(config, prepResult, startTime, iUploadResultCallback, generation);
         } catch (Exception e) {
             LogUtils.e(TAG, "Data upload flow failed: " + e.getMessage());
             notifyFail(iUploadResultCallback, e);
@@ -88,10 +104,29 @@ public class DataUploader {
      * logout/shutdown so late responses cannot reach a dead context.
      */
     public void release() {
-        if (disposable != null && !disposable.isDisposed()) {
-            disposable.dispose();
+        synchronized (subscriptionLock) {
+            // Invalidate uploads that subscribed but have not yet published their Disposable.
+            // A late publisher observes the changed generation and disposes itself.
+            subscriptionGeneration++;
+            disposable.set(null);
         }
-        disposable = null;
+    }
+
+    long captureSubscriptionGeneration() {
+        synchronized (subscriptionLock) {
+            return subscriptionGeneration;
+        }
+    }
+
+    boolean publishSubscription(Disposable subscription, long generation) {
+        synchronized (subscriptionLock) {
+            if (generation != subscriptionGeneration) {
+                subscription.dispose();
+                return false;
+            }
+            disposable.set(subscription);
+            return true;
+        }
     }
 
     private void notifySkipped(IUploadResultCallback callback, String reason) {
@@ -122,26 +157,23 @@ public class DataUploader {
         }
     }
 
-    private void executeNetworkRequest(DataPreparationManager.DataPreparationResult prepResult, long startTime, IUploadResultCallback iUploadResultCallback) {
+    private void executeNetworkRequest(Config config, DataPreparationManager.DataPreparationResult prepResult, long startTime, IUploadResultCallback iUploadResultCallback, long generation) {
         try {
             StatDataRequest statRequest = prepResult.getRequest();
 
             okhttp3.RequestBody requestBody = createRequestBody(statRequest);
 
-            ReporterHttpApi api = createStatDataAPI();
+            ReporterHttpApi api = createStatDataAPI(config);
 
-            // Dispose the previous in-flight subscription before replacing it,
-            // otherwise rapid repeated upload() calls leak subscriptions.
-            if (disposable != null && !disposable.isDisposed()) {
-                disposable.dispose();
-            }
-            disposable = api.uploadStatData(requestBody).subscribeOn(Schedulers.io()).subscribe(statDataResponse -> {
+            // SerialDisposable.set atomically disposes the previously held subscription,
+            // so rapid repeated upload() calls cannot leak subscriptions.
+            Disposable subscription = api.uploadStatData(requestBody).subscribeOn(Schedulers.io()).subscribe(statDataResponse -> {
                 // Guard the entire onSuccess body: any exception thrown here would otherwise
                 // escape the RxJava chain (RxJava2 onNext exceptions go to RxJavaPlugins, not onError).
                 boolean onSuccessInvoked = false;
                 try {
                     if (statDataResponse != null && statDataResponse.getData() != null) {
-                        deleteCachedData(statDataResponse.getData().isTxt(), prepResult);
+                        deleteCachedData(config, statDataResponse.getData().isTxt(), prepResult);
                     }
 
                     if (iUploadResultCallback != null) {
@@ -168,6 +200,9 @@ public class DataUploader {
                     }
                 }
             }, throwable -> notifyFail(iUploadResultCallback, throwable));
+            // Publish only if release() has not invalidated this upload while subscribe() was
+            // being created. The check and publication are linearized with release().
+            publishSubscription(subscription, generation);
         } catch (Exception e) {
             LogUtils.e(TAG, "Network request exception: " + e.getMessage());
             notifyFail(iUploadResultCallback, e);
@@ -182,14 +217,16 @@ public class DataUploader {
         );
     }
 
-    private ReporterHttpApi createStatDataAPI() {
-        okhttp3.OkHttpClient httpClient = this.okHttpClient.newBuilder()
+    private ReporterHttpApi createStatDataAPI(Config config) {
+        // accepted: [Q-04] Interceptor still reads global getFormatPlain(); metrics-only
+        // Config/format race, no asset path. Scan report 2026-07-14.
+        okhttp3.OkHttpClient httpClient = config.okHttpClient.newBuilder()
                 .addInterceptor(new DataFormatInterceptor())
                 .build();
 
         retrofit2.Retrofit retrofit = new retrofit2.Retrofit.Builder()
                 .client(httpClient)
-                .baseUrl(this.baseUrl)
+                .baseUrl(config.baseUrl)
                 .addConverterFactory(GsonConverterFactory.create())
                 .addCallAdapterFactory(RxJava2CallAdapterFactory.create())
                 .build();
@@ -197,20 +234,44 @@ public class DataUploader {
         return retrofit.create(ReporterHttpApi.class);
     }
 
-    private void deleteCachedData(boolean result, DataPreparationManager.DataPreparationResult prepResult) {
+    private void deleteCachedData(Config config, boolean result, DataPreparationManager.DataPreparationResult prepResult) {
         try {
             if (result) {
                 // Delete balance data using uploaded data
                 if (prepResult.getBalanceList() != null && !prepResult.getBalanceList().isEmpty()) {
-                    balanceRepository.updateAndDelete(prepResult.getBalanceList());
+                    config.balanceRepository.updateAndDelete(prepResult.getBalanceList());
                 }
                 // Delete transaction data using uploaded data
                 if (prepResult.getTransactionList() != null && !prepResult.getTransactionList().isEmpty()) {
-                    this.transactionRepository.updateAndDeleteData(prepResult.getTransactionList());
+                    config.transactionRepository.updateAndDeleteData(prepResult.getTransactionList());
                 }
             }
         } catch (Exception e) {
             LogUtils.e(TAG, "Cache deletion failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Immutable snapshot of the uploader configuration. Publishing a whole new instance
+     * through {@link #configRef} guarantees upload() never observes a half-applied init().
+     */
+    private static final class Config {
+        final IBalanceRepository balanceRepository;
+        final ITransactionRepository transactionRepository;
+        final boolean formatPlain;
+        final OkHttpClient okHttpClient;
+        final String baseUrl;
+
+        Config(IBalanceRepository balanceRepository,
+               ITransactionRepository transactionRepository,
+               boolean formatPlain,
+               OkHttpClient okHttpClient,
+               String baseUrl) {
+            this.balanceRepository = balanceRepository;
+            this.transactionRepository = transactionRepository;
+            this.formatPlain = formatPlain;
+            this.okHttpClient = okHttpClient;
+            this.baseUrl = baseUrl;
         }
     }
 

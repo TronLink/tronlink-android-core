@@ -83,9 +83,15 @@ public class TypeDecoder {
 
     public static <T extends Array> T decode(
             String input, int offset, TypeReference<T> typeReference) {
-        Class cls = ((ParameterizedType) typeReference.getType()).getRawType().getClass();
+        final Class cls;
+        try {
+            cls = typeReference.getClassType();
+        } catch (ClassNotFoundException e) {
+            throw new UnsupportedOperationException("Unable to resolve TypeReference", e);
+        }
         if (StaticArray.class.isAssignableFrom(cls)) {
-            return decodeStaticArray(input, offset, typeReference, 1);
+            return decodeStaticArray(input, offset, typeReference,
+                    getStaticArrayLength(typeReference, cls));
         } else if (DynamicArray.class.isAssignableFrom(cls)) {
             return decodeDynamicArray(input, offset, typeReference);
         } else {
@@ -93,6 +99,25 @@ public class TypeDecoder {
                     "Unsupported TypeReference: "
                             + cls.getName()
                             + ", only Array types can be passed as TypeReferences");
+        }
+    }
+
+    private static int getStaticArrayLength(TypeReference<?> typeReference, Class<?> arrayClass) {
+        if (typeReference instanceof TypeReference.StaticArrayTypeReference) {
+            return ((TypeReference.StaticArrayTypeReference<?>) typeReference).getSize();
+        }
+
+        String simpleName = arrayClass.getSimpleName();
+        String prefix = StaticArray.class.getSimpleName();
+        if (!simpleName.startsWith(prefix) || simpleName.length() == prefix.length()) {
+            throw new UnsupportedOperationException(
+                    "Static array size is missing from TypeReference: " + arrayClass.getName());
+        }
+        try {
+            return Integer.parseInt(simpleName.substring(prefix.length()));
+        } catch (NumberFormatException e) {
+            throw new UnsupportedOperationException(
+                    "Unable to resolve static array size: " + arrayClass.getName(), e);
         }
     }
 
@@ -130,6 +155,13 @@ public class TypeDecoder {
         try {
             byte[] inputByteArray = Numeric.hexStringToByteArray(input);
             int typeLengthAsBytes = getTypeLengthInBytes(type);
+
+            if (inputByteArray.length < Type.MAX_BYTE_LENGTH) {
+                throw new TypeMappingException(
+                        "Invalid numeric input for " + type.getName()
+                                + ": expected at least " + Type.MAX_BYTE_LENGTH
+                                + " bytes but got " + inputByteArray.length);
+            }
 
             byte[] resultByteArray = new byte[typeLengthAsBytes + 1];
 
@@ -273,7 +305,15 @@ public class TypeDecoder {
 
     static int decodeUintAsInt(String rawInput, int offset) {
         String input = rawInput.substring(offset, offset + MAX_BYTE_LENGTH_FOR_HEX_STRING);
-        return decode(input, 0, Uint.class).getValue().intValue();
+        BigInteger value = decode(input, 0, Uint.class).getValue();
+        // Length/offset words come from RPC or contract return data an attacker can
+        // control. A raw intValue() truncates the uint256 to negative or wrapped
+        // values that then flow into substring() and ArrayList pre-sizing (S-07).
+        if (value.signum() < 0 || value.bitLength() > 31) {
+            throw new TypeMappingException(
+                    "ABI length/offset word out of int range: " + value);
+        }
+        return value.intValue();
     }
 
     static Bool decodeBool(String rawInput, int offset) {
@@ -310,9 +350,18 @@ public class TypeDecoder {
 
     static DynamicBytes decodeDynamicBytes(String input, int offset) {
         int encodedLength = decodeUintAsInt(input, offset);
-        int hexStringEncodedLength = encodedLength << 1;
 
         int valueOffset = offset + MAX_BYTE_LENGTH_FOR_HEX_STRING;
+
+        // Bound the declared byte length by what the input actually contains before
+        // the << 1 can overflow or the substring/allocation can blow up (S-07).
+        int maxBytes = (input.length() - valueOffset) / 2;
+        if (encodedLength > maxBytes) {
+            throw new TypeMappingException(
+                    "Declared bytes length " + encodedLength
+                            + " exceeds remaining input of " + maxBytes + " bytes");
+        }
+        int hexStringEncodedLength = encodedLength << 1;
 
         String data = input.substring(valueOffset, valueOffset + hexStringEncodedLength);
         byte[] bytes = Numeric.hexStringToByteArray(data);
@@ -392,7 +441,8 @@ public class TypeDecoder {
             for (int i = 0, currOffset = offset; i < length; i++) {
                 T value;
                 final Class<T> declaredField = (Class<T>) constructor.getParameterTypes()[i];
-                //todo android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O
+                // accepted: [Q-08] nestedStructLength stays 0 on API 21-25 (getParameters API 26+);
+                // product paths rarely decode nested StaticStruct. Scan report 2026-07-14.
                 if (StaticStruct.class.isAssignableFrom(declaredField)) {
                     int nestedStructLength = 0;
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
@@ -462,6 +512,17 @@ public class TypeDecoder {
                 (elements, typeName) -> (T) new DynamicArray(AbiTypes.getType(typeName), elements);
 
         int valueOffset = offset + MAX_BYTE_LENGTH_FOR_HEX_STRING;
+
+        // Every element occupies at least one 32-byte word (static value, struct
+        // word, or dynamic-element offset), so a declared count beyond the words
+        // remaining in the input is malformed. Reject it before decodeArrayElements
+        // pre-sizes an ArrayList to an attacker-chosen capacity (S-07).
+        int maxElements = (input.length() - valueOffset) / MAX_BYTE_LENGTH_FOR_HEX_STRING;
+        if (length > maxElements) {
+            throw new TypeMappingException(
+                    "Declared array length " + length
+                            + " exceeds remaining input of " + maxElements + " words");
+        }
 
         return decodeArrayElements(input, valueOffset, typeReference, length, function);
     }
@@ -627,6 +688,9 @@ public class TypeDecoder {
             return Numeric.toBigInt((String) arg);
         } else if (arg instanceof byte[]) {
             return Numeric.toBigInt((byte[]) arg);
+        // accepted: [Q-03] Duplicate Double/Float instanceof is dead paste; Float→BigInteger
+        // via doubleValue is lossy but Float is not a normal ABI numeric input. Leaving as-is
+        // carries no meaningful product risk. Scan report 2026-07-21.
         } else if (arg instanceof Double
                 || arg instanceof Float
                 || arg instanceof Double

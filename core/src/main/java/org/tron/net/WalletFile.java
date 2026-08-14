@@ -443,6 +443,8 @@ public class WalletFile {
     }
   }
 
+  // accepted: [Q-12] Non-object kdfparams can throw IllegalStateException via getAsJsonObject();
+  // left unwrapped — non-blocking API contract issue. Scan report 2026-07-14.
   static class KdfParamsDeserializer implements JsonDeserializer<KdfParams> {
     @Override
     public KdfParams deserialize(JsonElement json, Type typeOfT,

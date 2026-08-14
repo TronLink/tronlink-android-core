@@ -18,6 +18,13 @@
 
 package org.tron.common.crypto.cryptohash;
 
+/**
+ * Core Keccak permutation shared by the Keccak/SHA-3 digests.
+ *
+ * <p><b>Not thread-safe.</b> The Keccak state ({@code A[]}/{@code tmpOut}) plus
+ * the inherited {@link DigestEngine} buffers are mutable instance fields; do not
+ * reuse one instance across threads. Allocate one instance per thread instead.
+ */
 abstract class KeccakCore extends DigestEngine {
 
   private static final long[] RC = {

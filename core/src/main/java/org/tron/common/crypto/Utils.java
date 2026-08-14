@@ -37,6 +37,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -62,7 +63,9 @@ public class Utils {
     }
 
     static String getSimpleTypeName(Class<?> type) {
-        String simpleName = type.getSimpleName().toLowerCase();
+        // Locale.ROOT: under tr_TR/az the default locale turns "Int256" into
+        // "ınt256" (dotless i), corrupting ABI type names and selectors (Q-03).
+        String simpleName = type.getSimpleName().toLowerCase(Locale.ROOT);
 
         if (type.equals(Uint.class)
                 || type.equals(Int.class)

@@ -1,0 +1,58 @@
+# tronlink-android-core known accepted issues
+
+## Scan report 2026-07-14 (slash)
+
+- S-04 (MEDIUM): scrypt parameter combination can allocate ~8 GiB before MAC verify.
+  Accepted: keystore import is app-internal only; KeyStoreUtils has no external/untrusted
+  caller path for attacker-supplied JSON. Scan report 2026-07-14.
+  Location: KeyStoreUtils.decryptToByte (scrypt n/r/p checks)
+
+- S-08 (MEDIUM): Illegal hex nibble not rejected in Numeric.hexStringToByteArray;
+  Character.digit(-1) silently packs wrong bytes. Accepted: dirty input comes from
+  upstream DApp/DeepLink/WC; app not primary owner of malformed typed-data; fix has
+  wide regression surface for limited benefit. Scan report 2026-07-14.
+  Location: org/tron/common/bip32/Numeric.java hexStringToByteArray
+
+- Q-04 (MAJOR): DataFormatInterceptor re-reads DataUploader.getFormatPlain() instead of
+  an upload-captured Config snapshot. Accepted: metrics-only race; worst case plaintext
+  stats or encrypt retry; no asset / signing path.
+  Location: DataUploader.createStatDataAPI / DataFormatInterceptor.intercept
+
+- Q-08 (MAJOR): Nested StaticStruct decode length is 0 on Android API 21-25 because
+  nestedStructLength is only computed via getParameters() (API 26+). Accepted: product
+  paths rarely decode nested StaticStruct ABI; non-nested decode unaffected.
+  Location: TypeDecoder.decodeStaticStructElement
+
+- Q-12 (MINOR): Keystore public APIs may leak undeclared RuntimeExceptions
+  (JsonSyntaxException / IllegalStateException / DecoderException) despite declaring
+  only CipherException/IOException. Accepted: non-blocking quality/API-contract issue;
+  import UI already fails closed.
+  Location: KeyStoreUtils.getPrivateWithKeyStore / getMnemonicWithKeyStore;
+  WalletFile.KdfParamsDeserializer
+
+## Scan report 2026-07-21 (slash)
+
+- Q-11 (SUGGESTION): Hash.sha3(String) treats input as hex (not UTF-8); depends on
+  Numeric.hexStringToByteArray illegal-nibble behavior (S-08). Accepted: public API
+  hex contract retained; sole in-repo caller Keys.getAddress passes hex pubkey;
+  UTF-8 callers must use sha3String; validating/renaming risks regressions.
+  Scan report 2026-07-21.
+  Location: org/tron/common/crypto/Hash.java sha3(String)
+
+- S-04 (LOW): ECKey.getPrivKeyBytes/getPrivateKey allocate a new 32-byte private-key
+  array with no zeroing contract; copies remain on heap until GC. Accepted: exposure
+  is process-memory only; BigInteger/BCECPrivateKey root material is immutable and
+  cannot be wiped; changing accessors or call-site wipe logic risks signing/keystore
+  paths for limited benefit. Scan report 2026-07-21.
+  Location: org/tron/common/crypto/ECKey.java getPrivKeyBytes / getPrivateKey
+
+- Q-03 (MINOR): TypeDecoder.asBigInteger has duplicate Double/Float instanceof and
+  Float→BigInteger via doubleValue loses precision. Accepted: dead duplicate checks;
+  Float is not a normal ABI numeric input; product risk negligible. Scan report
+  2026-07-21.
+  Location: org/tron/common/crypto/TypeDecoder.java asBigInteger
+
+- Q-07 (LOW): ByteArray.toBytesPadded lacks null guard and throws bare RuntimeException
+  on oversized input. Accepted: no in-repo callers (Numeric.toBytesPadded used instead);
+  helper robustness only, no asset/signing path. Scan report 2026-07-21.
+  Location: org/tron/common/utils/ByteArray.java toBytesPadded

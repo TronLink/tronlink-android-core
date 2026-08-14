@@ -38,6 +38,10 @@ public class DecimalUtils {
             else
                 return new BigDecimal(0);
         } catch (Throwable e) {
+            // Parsing failed: log it so an invalid amount is not silently treated as 0.
+            // Callers in amount-sensitive paths must not assume the returned 0 means a real
+            // zero value when a malformed input was supplied.
+            LogUtils.e(e);
             return BigDecimal.valueOf(0);
         }
     }

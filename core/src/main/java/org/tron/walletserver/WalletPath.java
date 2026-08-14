@@ -21,6 +21,7 @@ import lombok.Data;
 @Data
 public class WalletPath implements Serializable {
     private static final long serialVersionUID = 95504495L;
+    private static final int MAX_CHILD_INDEX = 0x7fffffff;
     public int purpose = 44;
     public int coinType = 195;
     public int account;
@@ -63,18 +64,27 @@ public class WalletPath implements Serializable {
 
     public static String buildPath(@Nullable String pathStr) {
         if (AddressUtil.isEmpty(pathStr)) return "";
+        return buildPath(parseWalletPath(pathStr));
+    }
+
+    private static WalletPath parseWalletPath(String pathStr) {
         WalletPath walletPath;
         try {
             walletPath = GsonFormatUtils.gsonToBean(pathStr, WalletPath.class);
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             LogUtils.e(e);
-            walletPath = new WalletPath();
+            throw new IllegalArgumentException("Failed to parse wallet path", e);
         }
-        return buildPath(walletPath);
+        if (walletPath == null) {
+            throw new IllegalArgumentException("Failed to parse wallet path");
+        }
+        validate(walletPath);
+        return walletPath;
     }
 
     public static String buildPath(@Nullable WalletPath wp) {
         if (wp == null) return AddressUtil.EMPTY_STRING;
+        validate(wp);
         return wp.purpose +
                 "'/" +
                 wp.coinType +
@@ -86,15 +96,32 @@ public class WalletPath implements Serializable {
                 wp.accountIndex;
     }
 
-    public static WalletPath buildWalletPath(String mnemonicPath){
-        if (!AddressUtil.isEmpty(mnemonicPath)) {
-            try {
-                return GsonFormatUtils.gsonToBean(mnemonicPath, WalletPath.class);
-            } catch (Exception e) {
-                LogUtils.e(e);
-            }
+    public static WalletPath buildWalletPath(String mnemonicPath) {
+        if (AddressUtil.isEmpty(mnemonicPath)) {
+            return new WalletPath();
         }
-        return new WalletPath();
+        return parseWalletPath(mnemonicPath);
+    }
+
+    public static void validate(WalletPath path) {
+        if (path == null) {
+            throw new IllegalArgumentException("Wallet path must not be null");
+        }
+        validate(path.purpose, path.coinType, path.account, path.change, path.accountIndex);
+    }
+
+    public static void validate(int purpose, int coinType, int account, int change, int accountIndex) {
+        requireChildIndex("purpose", purpose);
+        requireChildIndex("coinType", coinType);
+        requireChildIndex("account", account);
+        requireChildIndex("change", change);
+        requireChildIndex("accountIndex", accountIndex);
+    }
+
+    private static void requireChildIndex(String name, int value) {
+        if (value < 0 || value > MAX_CHILD_INDEX) {
+            throw new IllegalArgumentException("Wallet path " + name + " is out of range");
+        }
     }
 
 

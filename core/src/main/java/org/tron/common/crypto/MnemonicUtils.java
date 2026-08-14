@@ -7,6 +7,7 @@ import org.bouncycastle.crypto.generators.PKCS5S2ParametersGenerator;
 import org.bouncycastle.crypto.params.KeyParameter;
 import org.tron.common.bip39.BIP39;
 
+import java.text.Normalizer;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.List;
@@ -24,6 +25,13 @@ public class MnemonicUtils {
     private static final int SEED_ITERATIONS = 2048;
     private static final int SEED_KEY_SIZE = 512;
     private static List<String> WORD_LIST = null;
+
+    /** Signals that an entropy source returned an unmistakably degenerate value. */
+    public static final class EntropyQualityException extends IllegalArgumentException {
+        private EntropyQualityException(String message) {
+            super(message);
+        }
+    }
 
     /**
      * The mnemonic must encode entropy in a multiple of 32 bits. With more entropy security is
@@ -124,10 +132,17 @@ public class MnemonicUtils {
         }
         passphrase = passphrase == null ? "" : passphrase;
 
-        String salt = String.format("mnemonic%s", passphrase);
-//        String salt = "";
+        // BIP-39 requires password and salt in UTF-8 NFKD (as the Javadoc above already
+        // promised). Without normalization, canonically equivalent mnemonics/passphrases
+        // with different code point sequences derive different seeds (Q-11). NFKD is a
+        // no-op for the ASCII English wordlist and ASCII passphrases, so existing seeds
+        // are unaffected.
+        String normalizedMnemonic = Normalizer.normalize(mnemonic, Normalizer.Form.NFKD);
+        String salt =
+                Normalizer.normalize(
+                        String.format("mnemonic%s", passphrase), Normalizer.Form.NFKD);
         PKCS5S2ParametersGenerator gen = new PKCS5S2ParametersGenerator(new SHA512Digest());
-        gen.init(mnemonic.getBytes(UTF_8), salt.getBytes(UTF_8), SEED_ITERATIONS);
+        gen.init(normalizedMnemonic.getBytes(UTF_8), salt.getBytes(UTF_8), SEED_ITERATIONS);
 
         return ((KeyParameter) gen.generateDerivedParameters(SEED_KEY_SIZE)).getKey();
     }
@@ -139,6 +154,43 @@ public class MnemonicUtils {
         } catch (Exception ex) {
             return false;
         }
+    }
+
+    /**
+     * Validates a mnemonic for a new import without changing the text that will be used
+     * to derive its seed. Words must be separated by exactly one ASCII space; leading,
+     * trailing, repeated, or non-ASCII whitespace is rejected. This prevents a mnemonic
+     * from passing word/checksum validation after tokenization while deriving a different
+     * seed from the original text.
+     *
+     * <p>{@link #validateMnemonic(String)} retains its legacy tokenization behavior for
+     * callers that must validate historical phrases without changing their formatting.</p>
+     */
+    public static boolean validateMnemonicStrict(String mnemonic) {
+        return hasCanonicalWordSeparators(mnemonic) && validateMnemonic(mnemonic);
+    }
+
+    private static boolean hasCanonicalWordSeparators(String mnemonic) {
+        if (mnemonic == null || mnemonic.isEmpty()) {
+            return false;
+        }
+
+        boolean previousWasSpace = true;
+        for (int i = 0; i < mnemonic.length(); i++) {
+            char character = mnemonic.charAt(i);
+            if (character == ' ') {
+                if (previousWasSpace || i == mnemonic.length() - 1) {
+                    return false;
+                }
+                previousWasSpace = true;
+            } else {
+                if (Character.isWhitespace(character) || Character.isSpaceChar(character)) {
+                    return false;
+                }
+                previousWasSpace = false;
+            }
+        }
+        return !previousWasSpace;
     }
 
     private static boolean isMnemonicEmpty(String mnemonic) {
@@ -160,6 +212,37 @@ public class MnemonicUtils {
         if (ent < 128 || ent > 256 || ent % 32 != 0) {
             throw new IllegalArgumentException("The allowed size of ENT is 128-256 bits of "
                     + "multiples of 32");
+        }
+    }
+
+    /**
+     * Rejects unmistakably degenerate output from an entropy source. This check is intended for
+     * newly generated wallet entropy only; callers converting existing entropy to a BIP-39
+     * mnemonic should use {@link #generateMnemonic(byte[])} directly because repeated-byte values
+     * are valid BIP-39 inputs.
+     *
+     * @param entropy entropy returned by the wallet's random source
+     * @throws IllegalArgumentException if the entropy length is not valid for BIP-39
+     * @throws EntropyQualityException if the entropy is all zeros or one repeated byte
+     */
+    public static void validateGeneratedEntropyQuality(byte[] entropy) {
+        validateEntropy(entropy);
+
+        int nonZeroBytes = 0;
+        int differencesFromFirstByte = 0;
+        byte firstByte = entropy[0];
+
+        for (byte value : entropy) {
+            nonZeroBytes |= value;
+            differencesFromFirstByte |= value ^ firstByte;
+        }
+
+        if (nonZeroBytes == 0) {
+            throw new EntropyQualityException("Generated entropy must not be all zeros");
+        }
+        if (differencesFromFirstByte == 0) {
+            throw new EntropyQualityException(
+                    "Generated entropy must not contain one repeated byte");
         }
     }
 

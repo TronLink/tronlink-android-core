@@ -120,8 +120,7 @@ public class TransactionCoreUnitTest {
 
     private Protocol.Transaction sign(Protocol.Transaction transaction) {
         //sign
-        Protocol.Transaction mTransactionSigned = TransactionUtils.setTimestamp(transaction);
-        mTransactionSigned = TransactionUtils.sign(mTransactionSigned, testWallet.getECKey());
+        Protocol.Transaction mTransactionSigned = TransactionUtils.sign(transaction, testWallet.getECKey());
         System.out.println(TAG_TRANSACTION + " = " + mTransactionSigned.toString());
         return mTransactionSigned;
     }

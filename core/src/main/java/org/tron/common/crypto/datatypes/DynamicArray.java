@@ -13,6 +13,7 @@
 package org.tron.common.crypto.datatypes;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 /** Dynamic array type. */
@@ -60,6 +61,12 @@ public class DynamicArray<T extends Type> extends Array<T> {
     @Override
     public int bytes32PaddedLength() {
         return super.bytes32PaddedLength() + MAX_BYTE_LENGTH;
+    }
+
+    @Override
+    public List<T> getValue() {
+        // Read-only view (like StaticArray) to block post-construction tampering.
+        return Collections.unmodifiableList(value);
     }
 
     @SafeVarargs

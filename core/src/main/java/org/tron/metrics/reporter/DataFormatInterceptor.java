@@ -30,7 +30,9 @@ public class DataFormatInterceptor implements Interceptor {
             return chain.proceed(request);
         }
 
-        // Check if encryption is needed based on plain status
+        // accepted: [Q-04] Metrics-only race between upload Config snapshot and global
+        // formatPlain; worst case is plaintext stats or encrypt retry, no asset path.
+        // Scan report 2026-07-14.
         if (DataUploader.getInstance().getFormatPlain()) {
             // Plain mode - no encryption needed
             return chain.proceed(request);

@@ -66,11 +66,20 @@ public class Hash {
 
 
     /**
-     * Keccak-256 hash function.
+     * Keccak-256 hash of hex-encoded input (not UTF-8 text).
+     *
+     * <p>Input is decoded via {@link Numeric#hexStringToByteArray(String)} (optional {@code 0x}
+     * prefix). For UTF-8 text hashing use {@link #sha3String(String)} instead.
+     *
+     * <p>Illegal hex nibbles are not strictly rejected (same contract as S-08 /
+     * {@code Numeric.hexStringToByteArray}); callers must pass clean hex.
      *
      * @param hexInput hex encoded input data with optional 0x prefix
      * @return hash value as hex encoded string
      */
+    // accepted: [Q-11] Hex-only String overload retained for public API / Keys.getAddress;
+    // illegal-nibble silent packing follows accepted S-08. Validating or renaming would
+    // risk regressions. Callers needing UTF-8 must use sha3String. Scan report 2026-07-21.
     public static String sha3(String hexInput) {
         byte[] bytes = Numeric.hexStringToByteArray(hexInput);
         byte[] result = sha3(bytes);
@@ -86,7 +95,7 @@ public class Hash {
             digest.update(input);
             return digest.digest();
         } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
+            throw new IllegalArgumentException(e);
         }
 
     }
@@ -100,7 +109,7 @@ public class Hash {
             digest.update(input2, 0, input2.length);
             return digest.digest();
         } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
+            throw new IllegalArgumentException(e);
         }
     }
 
@@ -120,7 +129,7 @@ public class Hash {
             digest.update(input, start, length);
             return digest.digest();
         } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
+            throw new IllegalArgumentException(e);
         }
     }
 
@@ -142,7 +151,7 @@ public class Hash {
             digest.update(input);
             return digest.digest();
         } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
+            throw new IllegalArgumentException(e);
         }
     }
 

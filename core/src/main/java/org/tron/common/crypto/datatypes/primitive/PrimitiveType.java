@@ -15,6 +15,7 @@ package org.tron.common.crypto.datatypes.primitive;
 import org.tron.common.crypto.datatypes.Type;
 
 import java.io.Serializable;
+import java.util.Locale;
 import java.util.Objects;
 
 public abstract class PrimitiveType<T extends Serializable & Comparable<T>> implements Type<T> {
@@ -23,7 +24,9 @@ public abstract class PrimitiveType<T extends Serializable & Comparable<T>> impl
     private final T value;
 
     PrimitiveType(final T value) {
-        this.type = getClass().getSimpleName().toLowerCase();
+        // Locale.ROOT: under tr_TR/az the default locale turns "Int" into "ınt"
+        // (dotless i), corrupting ABI type names and selectors (Q-03).
+        this.type = getClass().getSimpleName().toLowerCase(Locale.ROOT);
         this.value = value;
     }
 

@@ -12,6 +12,8 @@
  */
 package org.tron.common.crypto.datatypes;
 
+import java.util.Objects;
+
 /** UTF-8 encoded string type. */
 public class Utf8String implements Type<String> {
 
@@ -21,7 +23,7 @@ public class Utf8String implements Type<String> {
     private String value;
 
     public Utf8String(String value) {
-        this.value = value;
+        this.value = Objects.requireNonNull(value, "Utf8String value must not be null");
     }
 
     /**

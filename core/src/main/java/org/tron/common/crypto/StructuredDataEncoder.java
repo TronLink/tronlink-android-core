@@ -42,6 +42,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -98,7 +99,7 @@ public class StructuredDataEncoder {
     final Pattern identifierPattern = Pattern.compile(identifierRegex);
     private ArrayList<String> addressParseList = new ArrayList<>();
 
-    public StructuredDataEncoder(String jsonMessageInString) throws IOException, RuntimeException {
+    public StructuredDataEncoder(String jsonMessageInString) throws IOException, IllegalArgumentException {
         // Parse String Message into object and validate
         this.jsonMessageObject = parseJSONMessage(jsonMessageInString);
     }
@@ -237,7 +238,7 @@ public class StructuredDataEncoder {
         return list;
     }
 
-    public List<Integer> getArrayDimensionsFromData(Object data) throws RuntimeException {
+    public List<Integer> getArrayDimensionsFromData(Object data) throws IllegalArgumentException {
         List<Pair> depthsAndDimensions = getDepthsAndDimensions(data, 0);
         // groupedByDepth has key as depth and value as List(pair(Depth, Dimension))
         Map<Object, List<Pair>> groupedByDepth =
@@ -257,7 +258,7 @@ public class StructuredDataEncoder {
         for (Map.Entry<Integer, List<Integer>> entry : depthDimensionsMap.entrySet()) {
             Set<Integer> setOfDimensionsInParticularDepth = new TreeSet<>(entry.getValue());
             if (setOfDimensionsInParticularDepth.size() != 1) {
-                throw new RuntimeException(
+                throw new IllegalArgumentException(
                         String.format(
                                 "Depth %d of array data has more than one dimensions",
                                 entry.getKey()));
@@ -288,8 +289,8 @@ public class StructuredDataEncoder {
     private byte[] convertToEncodedItem(String baseType, Object data) {
         byte[] hashBytes;
         try {
-            if (baseType.toLowerCase().startsWith("uint")
-                    || baseType.toLowerCase().startsWith("int")) {
+            if (baseType.toLowerCase(Locale.ROOT).startsWith("uint")
+                    || baseType.toLowerCase(Locale.ROOT).startsWith("int")) {
                 BigInteger value = convertToBigInt(data);
                 if (value.signum() >= 0) {
                     hashBytes = Numeric.toBytesPadded(convertToBigInt(data), MAX_BYTE_LENGTH);
@@ -315,29 +316,52 @@ public class StructuredDataEncoder {
                 BigInteger bi = new BigInteger((boolean) data ? "1" : "0");
                 hashBytes = Numeric.toBytesPadded(bi, 32);
             } else if (bytesTypePattern.matcher(baseType).find()) {
-                hashBytes = new byte[0];
+                // Enforce the exact bytesN length up front. BytesN constructors reject
+                // wrong lengths, but that failure used to be swallowed below, letting the
+                // element contribute zero bytes to the array concatenation — so
+                // [invalid, X] and [X] hashed identically (S-03).
+                int expectedByteLength = Integer.parseInt(baseType.substring("bytes".length()));
+                byte[] rawValue = Numeric.hexStringToByteArray((String) data);
+                if (rawValue.length != expectedByteLength) {
+                    throw new IllegalArgumentException(
+                            String.format(
+                                    "Type %s requires exactly %d bytes but data has %d",
+                                    baseType, expectedByteLength, rawValue.length));
+                }
 
                 Class<Type> typeClazz = (Class<Type>) AbiTypes.getType(baseType);
                 // Using the Reflection API to get the types of the parameters
                 Constructor[] constructors = typeClazz.getConstructors();
+                byte[] encodedItem = null;
+                Exception lastConstructorFailure = null;
                 for (Constructor constructor : constructors) {
                     // Check which constructor matches
                     try {
                         Class[] parameterTypes = constructor.getParameterTypes();
-                        hashBytes =
+                        encodedItem =
                                 Numeric.hexStringToByteArray(
                                         TypeEncoder.encode(
                                                 typeClazz
                                                         .getDeclaredConstructor(parameterTypes)
-                                                        .newInstance(Numeric.hexStringToByteArray((String) data))));
+                                                        .newInstance(rawValue)));
                         break;
                     } catch (IllegalArgumentException
                             | NoSuchMethodException
                             | InstantiationException
                             | IllegalAccessException
-                            | InvocationTargetException ignored) {
+                            | InvocationTargetException e) {
+                        // Constructor didn't match or rejected the value; try the next one.
+                        lastConstructorFailure = e;
                     }
                 }
+                if (encodedItem == null) {
+                    // Never fall back to an empty encoding: a zero-byte element makes
+                    // distinct arrays concatenate (and hash) to the same value.
+                    throw new IllegalArgumentException(
+                            "Failed to construct " + baseType + " from provided data",
+                            lastConstructorFailure);
+                }
+                hashBytes = encodedItem;
             } else {
                 byte[] b = convertArgToBytes((String) data);
                 BigInteger bi = new BigInteger(1, b);
@@ -366,7 +390,7 @@ public class StructuredDataEncoder {
                         value.toString(), dataDimensions.toString(), expectedDimensions.toString());
         if (expectedDimensions.size() != dataDimensions.size()) {
             // Ex: Expected a 3d array, but got only a 2d array
-            throw new RuntimeException(format);
+            throw new IllegalArgumentException(format);
         }
         for (int i = 0; i < expectedDimensions.size(); i++) {
             if (expectedDimensions.get(i) == -1) {
@@ -374,7 +398,7 @@ public class StructuredDataEncoder {
                 continue;
             }
             if (!expectedDimensions.get(i).equals(dataDimensions.get(i))) {
-                throw new RuntimeException(format);
+                throw new IllegalArgumentException(format);
             }
         }
 
@@ -383,7 +407,7 @@ public class StructuredDataEncoder {
 
     @SuppressWarnings("unchecked")
     public byte[] encodeData(String primaryType, Map<String, Object> data)
-            throws RuntimeException {
+            throws IllegalArgumentException {
         HashMap<String, List<StructuredData.Entry>> types = jsonMessageObject.getTypes();
 
         List<String> encTypes = new ArrayList<>();
@@ -459,13 +483,16 @@ public class StructuredDataEncoder {
                 encValues.add(hashedValue);
             } else if (field.getType().startsWith("uint") || field.getType().startsWith("int") || field.getType().equals("trcToken")) {
                 encTypes.add(field.getType());
-                // convert to BigInteger for ABI constructor compatibility
+                // Convert to BigInteger for ABI constructor compatibility. Do NOT fall back to the
+                // raw value on failure: that would let a malformed numeric field be signed over a
+                // hash built from incorrect data. Abort instead, consistent with
+                // convertToEncodedItem above, so the caller cancels signing.
                 try {
                     encValues.add(convertToBigInt(value));
                 } catch (NumberFormatException | NullPointerException e) {
-                    encValues.add(
-                            value); // value null or failed to convert, fallback to add string as
-                    // before
+                    LogUtils.e(e);
+                    throw new IllegalArgumentException(
+                            "Failed to encode EIP-712 numeric field of type " + field.getType(), e);
                 }
             } else if (field.getType().equals("address")) {
                 if (((String) value).startsWith("41")) {
@@ -512,7 +539,7 @@ public class StructuredDataEncoder {
             }
 
             if (!atleastOneConstructorExistsForGivenParametersType) {
-                throw new RuntimeException(
+                throw new IllegalArgumentException(
                         String.format(
                                 "Received an invalid argument for which no constructor"
                                         + " exists for the ABI Class %s",
@@ -533,11 +560,11 @@ public class StructuredDataEncoder {
     }
 
     public byte[] hashMessage(String primaryType, Map<String, Object> data)
-            throws RuntimeException {
+            throws IllegalArgumentException {
         return sha3(encodeData(primaryType, data));
     }
 
-    public byte[] hashMessage() throws RuntimeException {
+    public byte[] hashMessage() throws IllegalArgumentException {
         byte[] dataHash =
                 hashMessage(
                         jsonMessageObject.getPrimaryType(),
@@ -546,7 +573,7 @@ public class StructuredDataEncoder {
     }
 
     @SuppressWarnings("unchecked")
-    public byte[] hashDomain() throws RuntimeException {
+    public byte[] hashDomain() throws IllegalArgumentException {
         StructuredData.EIP712Domain domain = jsonMessageObject.getDomain();
         HashMap<String, Object> data = new HashMap<>();
         if (domain.getName() != null) data.put("name", domain.getName());
@@ -560,19 +587,19 @@ public class StructuredDataEncoder {
     }
 
     public void validateStructuredData(StructuredData.EIP712Message jsonMessageObject)
-            throws RuntimeException {
+            throws IllegalArgumentException {
         for (String structName : jsonMessageObject.getTypes().keySet()) {
             List<StructuredData.Entry> fields = jsonMessageObject.getTypes().get(structName);
             for (StructuredData.Entry entry : fields) {
                 if (!identifierPattern.matcher(entry.getName()).find()) {
                     // raise Error
-                    throw new RuntimeException(
+                    throw new IllegalArgumentException(
                             String.format(
                                     "Invalid Identifier %s in %s", entry.getName(), structName));
                 }
                 if (!typePattern.matcher(entry.getType()).find()) {
                     // raise Error
-                    throw new RuntimeException(
+                    throw new IllegalArgumentException(
                             String.format("Invalid Type %s in %s", entry.getType(), structName));
                 }
             }
@@ -580,7 +607,7 @@ public class StructuredDataEncoder {
     }
 
     public StructuredData.EIP712Message parseJSONMessage(String jsonMessageInString)
-            throws IOException, RuntimeException {
+            throws IOException, IllegalArgumentException {
         // LAZILY_PARSED_NUMBER preserves uint256 precision when dapps send numeric
         // literals (e.g. {"amount": 115792089237316195423570985008687907853269984665640564039457584007913129639935})
         // instead of strings — Long/Double would silently truncate.
@@ -606,7 +633,7 @@ public class StructuredDataEncoder {
     }
 
     @SuppressWarnings("unchecked")
-    public byte[] getStructuredData() throws RuntimeException {
+    public byte[] getStructuredData() throws IllegalArgumentException {
 
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
 
@@ -627,7 +654,7 @@ public class StructuredDataEncoder {
     }
 
     @SuppressWarnings("unchecked")
-    public byte[] hashStructuredData() throws RuntimeException {
+    public byte[] hashStructuredData() throws IllegalArgumentException {
         return sha3(getStructuredData());
     }
 }
