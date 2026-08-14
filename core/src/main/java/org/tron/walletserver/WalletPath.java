@@ -114,9 +114,7 @@ public class WalletPath implements Serializable {
         requireChildIndex("purpose", purpose);
         requireChildIndex("coinType", coinType);
         requireChildIndex("account", account);
-        if (change != 0 && change != 1) {
-            throw new IllegalArgumentException("Wallet path change must be 0 or 1");
-        }
+        requireChildIndex("change", change);
         requireChildIndex("accountIndex", accountIndex);
     }
 

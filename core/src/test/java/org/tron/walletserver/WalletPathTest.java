@@ -39,13 +39,24 @@ public class WalletPathTest {
     }
 
     @Test
-    public void buildWalletPathRejectsNegativeIndexesAndUnsupportedChange() {
+    public void buildWalletPathRejectsNegativeIndexes() {
         assertPathValidationFailure("{\"purpose\":44,\"coinType\":195,\"account\":-1,"
                 + "\"change\":0,\"accountIndex\":0}");
         assertPathValidationFailure("{\"purpose\":44,\"coinType\":195,\"account\":0,"
-                + "\"change\":2,\"accountIndex\":0}");
+                + "\"change\":-1,\"accountIndex\":0}");
         assertPathValidationFailure("{\"purpose\":44,\"coinType\":195,\"account\":0,"
                 + "\"change\":0,\"accountIndex\":-1}");
+    }
+
+    @Test
+    public void buildWalletPathAcceptsNonNegativeChange() {
+        String pathString = "{\"purpose\":44,\"coinType\":195,\"account\":0,"
+                + "\"change\":2,\"accountIndex\":0}";
+
+        WalletPath walletPath = WalletPath.buildWalletPath(pathString);
+
+        Assert.assertEquals(2, walletPath.change);
+        Assert.assertEquals("44'/195'/0'/2/0", WalletPath.buildPath(walletPath));
     }
 
     private static void assertPathValidationFailure(String pathString) {
