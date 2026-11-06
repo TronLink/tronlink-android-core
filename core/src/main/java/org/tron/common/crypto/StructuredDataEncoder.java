@@ -445,7 +445,9 @@ public class StructuredDataEncoder {
                 if (baseTypeName.equals("address") && value instanceof List) {
                     ArrayList<String> arrayList = (ArrayList) value;
                     arrayList.stream().forEach(addressPre -> {
-                        if ((addressPre).startsWith("41")) {
+                        // Same rule replace41Address uses, so the confirmation page only
+                        // renders as Base58 the addresses that are signed as TRON addresses.
+                        if (AddressUtil.isTronHexAddress(addressPre)) {
                             addressParseList.add(addressPre);
                         }
 
@@ -495,7 +497,9 @@ public class StructuredDataEncoder {
                             "Failed to encode EIP-712 numeric field of type " + field.getType(), e);
                 }
             } else if (field.getType().equals("address")) {
-                if (((String) value).startsWith("41")) {
+                // Same rule replace41Address uses, so the confirmation page only
+                // renders as Base58 the addresses that are signed as TRON addresses.
+                if (AddressUtil.isTronHexAddress((String) value)) {
                     addressParseList.add((String) value);
                 }
                 // no need replace, Address object will remove it auto
