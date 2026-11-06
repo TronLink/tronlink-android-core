@@ -123,10 +123,15 @@ public class AddressUtil {
             unPreAddress = ByteArray.toHexString(decoded);
 
             return unPreAddress.replaceFirst("41", "");
-        } else if (address.startsWith("41")) {
+        } else if (address.startsWith("41") && address.length() == HEX_ADDRESS_LENGTH) {
             return unPreAddress.replaceFirst("41", "");
         } else if (address.startsWith("0x")) {
-            return unPreAddress.replaceFirst("0x", "");
+            unPreAddress = unPreAddress.replaceFirst("0x", "");
+            if (unPreAddress.startsWith("41")
+                    && unPreAddress.length() == HEX_ADDRESS_LENGTH) {
+                return unPreAddress.replaceFirst("41", "");
+            }
+            return unPreAddress;
         }
         // No recognized prefix: assume the input is already raw hex and return as-is.
         return unPreAddress;
