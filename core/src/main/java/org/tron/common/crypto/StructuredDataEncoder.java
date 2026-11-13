@@ -28,6 +28,7 @@ import com.google.gson.reflect.TypeToken;
 
 import org.tron.common.bip32.Numeric;
 import org.tron.common.crypto.datatypes.AbiTypes;
+import org.tron.common.crypto.datatypes.Address;
 import org.tron.common.crypto.datatypes.Type;
 import org.tron.common.utils.LogUtils;
 import org.tron.walletserver.AddressUtil;
@@ -315,6 +316,11 @@ public class StructuredDataEncoder {
             } else if (baseType.equals("bool")) {
                 BigInteger bi = new BigInteger((boolean) data ? "1" : "0");
                 hashBytes = Numeric.toBytesPadded(bi, 32);
+            } else if (baseType.equals("address")) {
+                // The array path already removed Base58/hex/network prefixes. Parse the
+                // remaining value as hex using the same encoder as scalar addresses.
+                hashBytes = Numeric.hexStringToByteArray(
+                        TypeEncoder.encode(new Address((String) data, false)));
             } else if (bytesTypePattern.matcher(baseType).find()) {
                 // Enforce the exact bytesN length up front. BytesN constructors reject
                 // wrong lengths, but that failure used to be swallowed below, letting the

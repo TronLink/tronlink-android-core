@@ -4,6 +4,8 @@ import org.bouncycastle.util.encoders.Hex;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.util.Arrays;
+
 /**
  * Regression tests for replace41Address prefix handling. The result is ABI/EIP-712 encoded
  * as a 20-byte address, so any wrong strip silently changes the signed address.
@@ -52,6 +54,33 @@ public class AddressUtilReplace41Test {
     }
 
     @Test
+    public void decodeFromBase58Check_validAddress_roundTrips() {
+        byte[] payload = Hex.decode(TRON_HEX);
+        String base58 = AddressUtil.encode58Check(payload);
+        Assert.assertEquals(34, base58.length());
+        Assert.assertArrayEquals(payload, AddressUtil.decodeFromBase58Check(base58));
+    }
+
+    @Test
+    public void decodeFromBase58Check_invalidLength_isRejected() {
+        String base58 = AddressUtil.encode58Check(Hex.decode(TRON_HEX));
+        Assert.assertNull(AddressUtil.decodeFromBase58Check(null));
+        Assert.assertNull(AddressUtil.decodeFromBase58Check(""));
+        Assert.assertNull(AddressUtil.decodeFromBase58Check(base58.substring(1)));
+        Assert.assertNull(AddressUtil.decodeFromBase58Check("1" + base58));
+    }
+
+    @Test(timeout = 2000)
+    public void base58Address_oversizedInput_isRejectedBeforeExpensiveDecode() {
+        // Valid alphabet, but decoding this many digits takes seconds without the length gate.
+        char[] chars = new char[100_000];
+        Arrays.fill(chars, 'T');
+        String oversized = new String(chars);
+        Assert.assertNull(AddressUtil.decodeFromBase58Check(oversized));
+        assertRejected(oversized);
+    }
+
+    @Test
     public void tronHexAddress_stripsOnlyLeadingPrefix() {
         Assert.assertEquals(BODY_20, AddressUtil.replace41Address(TRON_HEX));
         Assert.assertEquals(BODY_20.toUpperCase(),
@@ -61,12 +90,16 @@ public class AddressUtilReplace41Test {
     @Test
     public void prefixedTronHexAddress_stripsBothPrefixes() {
         Assert.assertEquals(BODY_20, AddressUtil.replace41Address("0x" + TRON_HEX));
+        Assert.assertEquals(BODY_20, AddressUtil.replace41Address("0X" + TRON_HEX));
+        Assert.assertEquals(BODY_20.toUpperCase(),
+                AddressUtil.replace41Address("0X" + TRON_HEX.toUpperCase()));
     }
 
     @Test
     public void raw20ByteAddressStartingWith41_isPreserved() {
         Assert.assertEquals(BODY_20, AddressUtil.replace41Address(BODY_20));
         Assert.assertEquals(BODY_20, AddressUtil.replace41Address("0x" + BODY_20));
+        Assert.assertEquals(BODY_20, AddressUtil.replace41Address("0X" + BODY_20));
     }
 
     @Test
@@ -74,6 +107,7 @@ public class AddressUtilReplace41Test {
         String raw = "5cb7e83668d78451a236c86de505d5ff5024bd99";
         Assert.assertEquals(raw, AddressUtil.replace41Address(raw));
         Assert.assertEquals(raw, AddressUtil.replace41Address("0x" + raw));
+        Assert.assertEquals(raw, AddressUtil.replace41Address("0X" + raw));
     }
 
     @Test(expected = IllegalArgumentException.class)
@@ -85,12 +119,17 @@ public class AddressUtilReplace41Test {
     public void isTronHexAddress_matchesReplace41Rule() {
         Assert.assertTrue(AddressUtil.isTronHexAddress(TRON_HEX));
         Assert.assertTrue(AddressUtil.isTronHexAddress("0x" + TRON_HEX));
+        Assert.assertTrue(AddressUtil.isTronHexAddress("0X" + TRON_HEX));
         Assert.assertTrue(AddressUtil.isTronHexAddress(TRON_HEX.toUpperCase()));
 
         Assert.assertFalse(AddressUtil.isTronHexAddress(null));
         Assert.assertFalse(AddressUtil.isTronHexAddress(""));
         Assert.assertFalse(AddressUtil.isTronHexAddress(BODY_20));
         Assert.assertFalse(AddressUtil.isTronHexAddress("0x" + BODY_20));
+        Assert.assertFalse(AddressUtil.isTronHexAddress("0X" + BODY_20));
+        Assert.assertFalse(AddressUtil.isTronHexAddress("0X" + TRON_HEX + "00"));
+        Assert.assertFalse(AddressUtil.isTronHexAddress("0X42" + BODY_20));
+        Assert.assertFalse(AddressUtil.isTronHexAddress("0X41" + BODY_20.substring(2) + "zz"));
         Assert.assertFalse(AddressUtil.isTronHexAddress(TRON_HEX + "00"));
         Assert.assertFalse(AddressUtil.isTronHexAddress("42" + BODY_20));
         Assert.assertFalse(AddressUtil.isTronHexAddress("41" + BODY_20.substring(2) + "zz"));

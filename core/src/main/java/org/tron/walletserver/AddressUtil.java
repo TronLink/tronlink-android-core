@@ -15,6 +15,7 @@ public class AddressUtil {
 
     private static final String TAG = "AddressUtil";
     private static final int HEX_ADDRESS_LENGTH = 42;
+    private static final int BASE58_ADDRESS_LENGTH = 34;
 
     /**
      * Determine if it is empty
@@ -122,7 +123,7 @@ public class AddressUtil {
             return ByteArray.toHexString(decoded)
                     .substring(Parameter.CommonConstant.ADD_PRE_FIX_STRING.length());
         }
-        String hex = address.startsWith("0x") ? address.substring(2) : address;
+        String hex = address.regionMatches(true, 0, "0x", 0, 2) ? address.substring(2) : address;
         if (isTronHexAddress(hex)) {
             return hex.substring(Parameter.CommonConstant.ADD_PRE_FIX_STRING.length());
         }
@@ -132,7 +133,7 @@ public class AddressUtil {
     }
 
     /**
-     * Returns true for a 21-byte TRON hex address: an optional {@code 0x} prefix followed by
+     * Returns true for a 21-byte TRON hex address: an optional {@code 0x}/{@code 0X} prefix followed by
      * {@code 41} and 40 hex characters. This is the same rule {@link #replace41Address(String)}
      * uses to decide whether to strip the network prefix, so callers that need to know whether
      * a value was treated as a TRON address (e.g. for display) stay consistent with signing.
@@ -141,7 +142,7 @@ public class AddressUtil {
         if (address == null) {
             return false;
         }
-        String hex = address.startsWith("0x") ? address.substring(2) : address;
+        String hex = address.regionMatches(true, 0, "0x", 0, 2) ? address.substring(2) : address;
         return hex.length() == HEX_ADDRESS_LENGTH
                 && hex.startsWith(Parameter.CommonConstant.ADD_PRE_FIX_STRING)
                 && isHexString(hex);
@@ -174,7 +175,9 @@ public class AddressUtil {
     }
 
     public static byte[] decodeFromBase58Check(String addressBase58) {
-        if (isEmpty(addressBase58)) {
+        // Bound untrusted input before the quadratic Base58 conversion. The decoder
+        // checks the ASCII alphabet; checksum and network validation still follow.
+        if (addressBase58 == null || addressBase58.length() != BASE58_ADDRESS_LENGTH) {
             return null;
         }
         byte[] address = decode58Check(addressBase58);

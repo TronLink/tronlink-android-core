@@ -38,7 +38,7 @@ public class ByteArray {
         if (data == null) {
             return EMPTY_BYTE_ARRAY;
         }
-        if (data.startsWith("0x")) {
+        if (data.regionMatches(true, 0, "0x", 0, 2)) {
             data = data.substring(2);
         }
         if (data.length() % 2 == 1) {
