@@ -111,25 +111,40 @@ public class AddressUtil {
             // external input, so surface the error rather than silently continue.
             throw new IllegalArgumentException("address must not be null");
         }
-        String unPreAddress = address;
         if (address.startsWith("T")) {
-            byte[] decoded = AddressUtil.decode58Check(address);
+            // decodeFromBase58Check also verifies the 21-byte length and the 0x41 prefix.
+            // A checksum-valid payload with another length or prefix must not be signed:
+            // stripping "41" from it would silently produce a different address.
+            byte[] decoded = decodeFromBase58Check(address);
             if (decoded == null) {
-                // decode58Check returns null on a bad checksum/length. Fail fast
-                // instead of toHexString(null) producing an empty/garbage address
-                // that would flow into signing or transaction construction.
                 throw new IllegalArgumentException("invalid base58 address");
             }
-            unPreAddress = ByteArray.toHexString(decoded);
-
-            return unPreAddress.replaceFirst("41", "");
-        } else if (address.startsWith("41")) {
-            return unPreAddress.replaceFirst("41", "");
-        } else if (address.startsWith("0x")) {
-            return unPreAddress.replaceFirst("0x", "");
+            return ByteArray.toHexString(decoded)
+                    .substring(Parameter.CommonConstant.ADD_PRE_FIX_STRING.length());
         }
-        // No recognized prefix: assume the input is already raw hex and return as-is.
-        return unPreAddress;
+        String hex = address.startsWith("0x") ? address.substring(2) : address;
+        if (isTronHexAddress(hex)) {
+            return hex.substring(Parameter.CommonConstant.ADD_PRE_FIX_STRING.length());
+        }
+        // Not a 21-byte TRON hex address: treat it as raw 20-byte hex and keep it intact,
+        // even when it happens to start with "41".
+        return hex;
+    }
+
+    /**
+     * Returns true for a 21-byte TRON hex address: an optional {@code 0x} prefix followed by
+     * {@code 41} and 40 hex characters. This is the same rule {@link #replace41Address(String)}
+     * uses to decide whether to strip the network prefix, so callers that need to know whether
+     * a value was treated as a TRON address (e.g. for display) stay consistent with signing.
+     */
+    public static boolean isTronHexAddress(String address) {
+        if (address == null) {
+            return false;
+        }
+        String hex = address.startsWith("0x") ? address.substring(2) : address;
+        return hex.length() == HEX_ADDRESS_LENGTH
+                && hex.startsWith(Parameter.CommonConstant.ADD_PRE_FIX_STRING)
+                && isHexString(hex);
     }
 
     public static byte[] decode58Check(String input) {
